@@ -1,0 +1,13 @@
+streamlit
+requests
+p
+pandas
+pillow
+opencv-python
+transformers
+sentence-transformers
+torch
+python-docx
+pdf2image
+fitz
+pytesseract
