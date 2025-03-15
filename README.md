@@ -40,8 +40,10 @@ GROQ_API_KEY=your_groq_api_key
 AZURE_VISION_API_KEY=your_azure_api_key
 AZURE_VISION_ENDPOINT=your_azure_endpoint
 ```
+
+### Working: 
 ```
-working: https://drive.google.com/file/d/11vR8SSYagP9GmAAUK-iM8Kj5vfGA8WYs/view?usp=sharing
+https://drive.google.com/file/d/11vR8SSYagP9GmAAUK-iM8Kj5vfGA8WYs/view?usp=sharing
 ```
 
 ### Run the Application
