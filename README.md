@@ -3,6 +3,14 @@
 ## Overview
 Evalence is an AI-powered **automated exam grading system** that can analyze and evaluate **text, images, PDFs, DOCX files, code snippets, and graphs**. The system extracts content from uploaded documents, determines their nature (questions, solutions, reports, etc.), and provides **automated grading with feedback.**
 
+## Interface
+
+### File Upload Interface
+![Upload Interface](interface/ui.png)
+
+### Extracted Text & AI Evaluation
+![AI Grading](interface/1.png)
+
 ## Features
 - **Extracts text** from images, scanned PDFs, Word documents, and handwritten content.
 - **AI-driven grading** with **automated evaluation and scoring**.
@@ -77,14 +85,6 @@ streamlit run app.py
 **Images:** JPG, PNG, JPEG
 **Documents:** PDF, DOCX
 **Code Files:** PY, TXT, C
-
-## Example Screenshots
-
-### File Upload Interface
-![Upload Interface](interface/ui.png)
-
-### Extracted Text & AI Evaluation
-![AI Grading](interface/1.png)
 
 ## Challenges & Solutions
 ### Challenge: Handling Multiple Content Types
