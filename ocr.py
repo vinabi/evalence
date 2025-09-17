@@ -1,91 +1,76 @@
+# ocr.py
 from PIL import Image
 import pytesseract
 import fitz  # PyMuPDF
 import os
 import io
 import docx
+import shutil
 
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+# Detect if tesseract exists on PATH (Streamlit Cloud will install it via packages.txt)
+_TESSERACT_OK = shutil.which("tesseract") is not None
 
-def ocr_core(image):
-    """
-    This function will handle the core OCR processing of images.
-    """
-    text = pytesseract.image_to_string(image)  # We'll use Pillow's Image class to open the image and pytesseract to detect the string in the image
-    return text
+def _ocr_core_image(pil_image: Image.Image) -> str:
+    """OCR a PIL image safely (handles modes & missing tesseract)."""
+    if not _TESSERACT_OK:
+        # If tesseract binary isn't installed, skip image OCR but don't crash.
+        return "[OCR skipped: tesseract not available on server]"
+    # Convert to a format Tesseract likes
+    img = pil_image.convert("L")  # grayscale
+    return pytesseract.image_to_string(img)
 
-def extract_text_from_image(image_path):
-    """
-    This function will extract text from a standalone image file.
-    """
-    image = Image.open(image_path)
-    text = ocr_core(image)
-    return text
+def extract_text_from_image(image_path: str) -> str:
+    """OCR a standalone image file."""
+    with Image.open(image_path) as im:
+        return _ocr_core_image(im)
 
-def extract_text_from_pdf(pdf_path):
+def extract_text_from_pdf(pdf_path: str) -> str:
     """
-    This function will extract text from a PDF file, including text from images within the PDF.
+    Extract text from PDF using PyMuPDF (fast, no Poppler needed),
+    then OCR any embedded images on each page.
     """
     doc = fitz.open(pdf_path)
-    text = ""
-    for page_num in range(len(doc)):
-        page = doc.load_page(page_num)
-        text += page.get_text()
-        
-        # Extract images from the page
-        image_list = page.get_images(full=True)
-        for img_index, img in enumerate(image_list):
-            xref = img[0]
-            base_image = doc.extract_image(xref)
-            image_bytes = base_image["image"]
-            image = Image.open(io.BytesIO(image_bytes))
-            text += "\n[Text from image {} on page {}]:\n".format(img_index + 1, page_num + 1)
-            text += ocr_core(image)
-    return text
+    collected = []
 
-def extract_text_from_docx(docx_path):
+    for page_idx in range(len(doc)):
+        page = doc.load_page(page_idx)
+        # 1) Direct text (layout-aware extractor is "text")
+        collected.append(page.get_text("text"))
+
+        # 2) OCR images on the page (if tesseract is available)
+        for imginfo in page.get_images(full=True):
+            xref = imginfo[0]
+            base = doc.extract_image(xref)
+            image_bytes = base["image"]
+            with Image.open(io.BytesIO(image_bytes)) as pil_img:
+                # Ensure a safe mode for OCR
+                if pil_img.mode in ("RGBA", "P"):
+                    pil_img = pil_img.convert("RGB")
+                ocr_text = _ocr_core_image(pil_img)
+                collected.append(f"[Image OCR on page {page_idx+1}]\n{ocr_text}")
+
+    return "\n".join(filter(None, collected)).strip()
+
+def extract_text_from_docx(docx_path: str) -> str:
     """
-    This function will extract text from a Word document, including text from images within the document.
+    Extract text & OCR any embedded images from a Word document.
     """
-    doc = docx.Document(docx_path)
-    text = ""
-    for para in doc.paragraphs:
-        text += para.text + "\n"
-    
-    # Extract images from the document
-    for rel in doc.part.rels.values():
+    d = docx.Document(docx_path)
+    parts = []
+
+    # Paragraph text
+    for para in d.paragraphs:
+        if para.text.strip():
+            parts.append(para.text)
+
+    # Embedded images
+    for rel in d.part.rels.values():
         if "image" in rel.target_ref:
             image_bytes = rel.target_part.blob
-            image = Image.open(io.BytesIO(image_bytes))
-            text += "\n[Text from image]:\n"
-            text += ocr_core(image)
-    
-    return text
+            with Image.open(io.BytesIO(image_bytes)) as pil_img:
+                if pil_img.mode in ("RGBA", "P"):
+                    pil_img = pil_img.convert("RGB")
+                ocr_text = _ocr_core_image(pil_img)
+                parts.append(f"[Image OCR]\n{ocr_text}")
 
-def main():
-    file_path = input("Please enter the path to your file: ")
-    
-    if not os.path.isfile(file_path):
-        print("The file does not exist.")
-        return
-    
-    file_extension = os.path.splitext(file_path)[1].lower()
-    
-    if file_extension in ['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff']:
-        print("Processing image file...")
-        text = extract_text_from_image(file_path)
-    elif file_extension == '.pdf':
-        print("Processing PDF file...")
-        text = extract_text_from_pdf(file_path)
-    elif file_extension == '.docx':
-        print("Processing Word document...")
-        text = extract_text_from_docx(file_path)
-    else:
-        print("Unsupported file type.")
-        return
-    
-    print("Extracted Text:")
-    print(text)
-
-if __name__ == "__main__":
-    main()
+    return "\n".join(parts).strip()
