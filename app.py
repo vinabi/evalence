@@ -6,45 +6,21 @@ import code_grader
 from grading import grade_extracted_text, grade_image, classify_uploaded_content
 from PIL import Image
 
-# ----------------------- UI CONFIG -----------------------
 st.set_page_config(page_title="Evalence", layout="wide")
 st.title("Evalence")
 
-# --- Light Almond Background + Dark Sidebar ---
-st.markdown("""
-    <style>
-    body, .stApp {
-        background-color: #EEE5DA;
-        color: black;
-    }
-    div[data-testid="stSidebar"] {
-        background-color: #262424;
-    }
-    .stTextArea textarea, .stTextInput input, .stTextInput textarea {
-        background-color: #EEE5DA;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-# ----------------------- USER INPUTS -----------------------
 total_marks = st.number_input("Enter total marks for evaluation (default: 100)", min_value=1, value=100)
-st.markdown("Upload any **exam paper** (pdf, image, docx, or code), and Evalence will auto-analyze + grade it.")
+st.markdown("Upload an **exam paper (pdf, img, docx, code)**, and the AI will **evaluate the content**.")
 
-uploaded_file = st.file_uploader("Upload your file", type=["jpg", "jpeg", "png", "pdf", "docx", "py", "c", "txt"])
+def extract_grading_elements(content):
+    """
+    Extracts Score, Explanation, and Feedback from AI-generated content
+    while handling missing sections properly.
+    """
+    score = "N/A"
+    explanation = "No explanation provided."
+    feedback = "No feedback available."
 
-# ----------------------- HELPERS -----------------------
-def validate_score(score, total):
-    try:
-        score = int(score)
-        if score > total:
-            st.warning(f"Score {score} exceeds total {total}, adjusting...")
-            return total
-        return score
-    except:
-        return "N/A"
-
-def extract_elements(content):
-    score, explanation, feedback = "N/A", "No explanation.", "No feedback."
     try:
         if "Score:" in content:
             score = content.split("Score:")[1].split("/")[0].strip()
@@ -52,90 +28,81 @@ def extract_elements(content):
             explanation = content.split("Explanation:")[1].split("Feedback:")[0].strip()
         if "Feedback:" in content:
             feedback = content.split("Feedback:")[1].strip()
-    except:
-        feedback = content
+    except (IndexError, ValueError):
+        feedback = content  # If parsing fails, show raw response
+
     return score, explanation, feedback
 
-def sidebar_box(title, score, total, explanation, feedback):
-    st.sidebar.markdown(f"""
-        <div style="border-radius: 15px; padding: 20px; background: #262424; color: white; font-family: 'Segoe UI', sans-serif;">
-            <h3 style="text-align: center;">{title}</h3>
-            <p><b>Score:</b> <span style="font-size: 20px; color: #EEE5DA;">{score}/{total}</span></p>
-            <hr>
-            <p><b>Explanation:</b></p>
-            <p>{explanation}</p>
-            <hr>
-            <p><b>Feedback:</b></p>
-            <p>{feedback}</p>
-        </div>
-    """, unsafe_allow_html=True)
+uploaded_file = st.file_uploader("Upload a file", type=["jpg", "png", "pdf", "py", "txt", "docx", "c"])
 
-# ----------------------- MAIN LOGIC -----------------------
 if uploaded_file:
     file_path = f"temp_{uploaded_file.name}"
     with open(file_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
 
-    file_ext = os.path.splitext(file_path)[1].lower()
+    file_extension = os.path.splitext(file_path)[1].lower()
 
-    try:
-        with st.spinner("Processing..."):
-            if file_ext == ".pdf":
+    with st.spinner("Processing..."):
+        try:
+            if file_extension == ".pdf":
                 extracted_text = ocr.extract_text_from_pdf(file_path)
-            elif file_ext == ".docx":
+            elif file_extension in [".py", ".txt", ".c"]:
+                with open(file_path, "r") as code_file:
+                    extracted_text = code_file.read()
+            elif file_extension == ".docx":
                 extracted_text = ocr.extract_text_from_docx(file_path)
                 extracted_images = vision.extract_images_from_docx(file_path)
-            elif file_ext in [".py", ".txt", ".c"]:
-                with open(file_path, "r", encoding="utf-8", errors="replace") as f:
-                    extracted_text = f.read()
-            elif file_ext in [".jpg", ".jpeg", ".png"]:
-                extracted_text = ocr.extract_text_from_image(file_path)
             else:
-                st.error("Unsupported file type.")
-                st.stop()
+                extracted_text = ocr.extract_text_from_image(file_path)
 
             if extracted_text.strip():
-                st.text_area("Extracted Text", extracted_text, height=200)
+                st.text_area(
+    label="| Extracted Text:", extracted_text, height=200)
 
-                # Classify & Evaluate
+                # Classify the uploaded content
                 content_type = classify_uploaded_content(extracted_text)
 
-                if content_type in ["solution", "assignment", "project report"]:
-                    grading = grade_extracted_text(extracted_text, total_marks)
-                    title = "Evaluation"
+                if content_type == "solution":
+                    st.success("✅ This appears to be a solution. Proceeding with grading...")
+                    
+                    with st.spinner("Grading answers..."):
+                        grading_result = grade_extracted_text(extracted_text, total_marks)
+                    
                 else:
-                    grading = grade_extracted_text(extracted_text, total_marks)
-                    title = "Explanation"
+                    st.info(f"🔍 The uploaded content was classified as **{content_type}**. Instead of grading, we will provide an explanation and a general score.")
+                    grading_result = grade_extracted_text(extracted_text, total_marks)
 
-                content = grading.get("choices", [{}])[0].get("message", {}).get("content", "")
-                score, explanation, feedback = extract_elements(content)
+                if "error" in grading_result:
+                    st.error(grading_result["error"])
+                else:
+                    content = grading_result.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    
+                    if not content.strip():
+                        st.warning("AI response was empty. Instead of stopping, we are providing a basic explanation.")
+                        content = "No specific evaluation available, but the text was analyzed."
 
-                if content_type in ["solution", "assignment", "project report"]:
-                    score = validate_score(score, total_marks)
-                sidebar_box(title, score, total_marks, explanation, feedback)
+                    score, explanation, feedback = extract_grading_elements(content)
 
-            # ---------- IMAGE FILE ANALYSIS ----------
-            if file_ext in [".jpg", ".jpeg", ".png"]:
-                grading = grade_image(file_path, total_marks)
-                content = grading.get("choices", [{}])[0].get("message", {}).get("content", "")
-                score, explanation, feedback = extract_elements(content)
-                score = validate_score(score, total_marks)
-                sidebar_box("Image Evaluation", score, total_marks, explanation, feedback)
-                st.image(file_path, caption="Uploaded Image", use_container_width=True)
+                    st.sidebar.markdown(
+    '<style>div.Widget > div > textarea {background-color: #EEE5DA !important;}</style>', unsafe_allow_html=True)
 
-            # ---------- IMAGES FROM DOCX ----------
-            if file_ext == ".docx" and extracted_images:
-                for i, img in enumerate(extracted_images):
-                    temp_img_path = f"docx_img_{i}.png"
-                    img.save(temp_img_path)
-                    grading = grade_image(temp_img_path, total_marks)
-                    content = grading.get("choices", [{}])[0].get("message", {}).get("content", "")
-                    score, explanation, feedback = extract_elements(content)
-                    score = validate_score(score, total_marks)
-                    sidebar_box(f"Image from DOCX (Page {i+1})", score, total_marks, explanation, feedback)
-                    os.remove(temp_img_path)
+st.sidebar.markdown(
+    '<style>div[data-testid="stSidebar"] {background-color: #262424 !important;}</style>', unsafe_allow_html=True)
 
-    except Exception as e:
-        st.error(f"Error: {e}")
+st.sidebar.markdown(f"""
+                        <div style="border-radius: 15px; padding: 20px; background: linear-gradient(to right, #6a11cb, #2575fc); color: white; font-family: Arial, sans-serif;">
+                            <h2 style="text-align: center; font-size: 26px;"> Evaluation Stats </h2>
+                            <p><b>Score:</b> <span style="font-size: 24px; color: yellow;">{score}/{total_marks}</span></p>
+                            <hr>
+                            <p><b>Explanation:</b></p>
+                            <p style="font-style: italic;">{explanation}</p>
+                            <hr>
+                            <p><b>Feedback:</b></p>
+                            <p>{feedback}</p>
+                        </div>
+                    """, unsafe_allow_html=True)
+        
+        except Exception as e:
+            st.warning(f"AI encountered an issue but instead of stopping, providing available analysis. Error: {e}")
 
     os.remove(file_path)
